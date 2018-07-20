@@ -6,12 +6,30 @@ const mongoose = require('mongoose');
 mongoose.Promise = global.Promise;
 
 const { DATABASE_URL, PORT } = require('./config');
-const { BlogPost } = require('./models');
+const { Author, BlogPost } = require('./models');
 
 const app = express();
 
 app.use(morgan('common'));
 app.use(express.json());
+
+app.get('/authors', (req, res) => {
+  Author
+    .find()
+    .then(authors => {
+      res.json(authors.map(author => {
+        return {
+          id: author._id,
+          name: `${author.firstName} ${author.lastName}`,
+          userName: author.userName
+        };
+      }));
+    })
+    .catch(err => {
+      console.error(err);
+      res.status(500).json({ error: 'something went terribly wrong' });
+    });
+});
 
 app.get('/posts', (req, res) => {
   BlogPost
@@ -36,7 +54,7 @@ app.get('/posts/:id', (req, res) => {
 });
 
 app.post('/posts', (req, res) => {
-  const requiredFields = ['title', 'content', 'author'];
+  const requiredFields = ['title', 'content', 'author_id'];
   for (let i = 0; i < requiredFields.length; i++) {
     const field = requiredFields[i];
     if (!(field in req.body)) {
@@ -59,6 +77,16 @@ app.post('/posts', (req, res) => {
     });
 
 });
+
+app.post('/authors', (req, res) => {
+  const requiredFields = ['firstName', 'lastName', 'userName'];
+  requiredFields.forEach(field => {
+    if (!(field in req.body)) {
+      const message = `Missing \`${field}\` in request body`;
+      console.error(message);
+      return res.status(400).send(message);
+    }
+  });
 
 
 app.delete('/posts/:id', (req, res) => {
@@ -95,6 +123,53 @@ app.put('/posts/:id', (req, res) => {
     .catch(err => res.status(500).json({ message: 'Something went wrong' }));
 });
 
+app.put('/authors/:id', (req, res) => {
+  if (!(req.params.id && req.body.id && req.params.id === req.body.id)) {
+    res.status(400).json({
+      error: 'Request path id and request body id values must match'
+    });
+  }
+
+  const updated = {};
+  const updateableFields = ['firstName', 'lastName', 'userName'];
+  updateableFields.forEach(field => {
+    if (field in req.body) {
+      updated[field] = req.body[field];
+    }
+  });
+
+  Author
+    .findOne({ userName: updated.userName || '', _id: !{req.params.id}  })
+    .then(author => {
+      if(author) {
+        const message = `Username taken`;
+        console.error(message);
+        return res.status(400).send(message);
+      }
+      else {
+        Author
+          .findByIdAndUpdate(req.params.id, { $set: updated }, { new: true })
+          .then(updatedAuthor => {
+            res.status(200).json({
+              id: updatedAuthor.id,
+              name: `${updatedAuthor.firstName} ${updatedAuthor.lastName}`,
+              userName: updatedAuthor.userName
+            });
+          })
+          .catch(err => res.status(500).json({ message: err }));
+      }
+    });
+});
+
+app.delete('/authors/:id', (req, res) => {
+  BlogPost
+  .remove({author: req.params.id})
+
+
+
+
+
+})
 
 app.delete('/:id', (req, res) => {
   BlogPost
@@ -110,12 +185,10 @@ app.use('*', function (req, res) {
   res.status(404).json({ message: 'Not Found' });
 });
 
-// closeServer needs access to a server object, but that only
-// gets created when `runServer` runs, so we declare `server` here
-// and then assign a value to it in run
+
 let server;
 
-// this function connects to our database, then starts the server
+
 function runServer(databaseUrl, port = PORT) {
   return new Promise((resolve, reject) => {
     mongoose.connect(databaseUrl, err => {
